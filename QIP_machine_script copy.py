@@ -18,7 +18,7 @@ results_path = 'Results'
 
 ### each entry is a pair of the name of the csv file and the path to the image folder, you can enter several datasets/pairs
 datasets = [
-            ['AESfeedback_1.results.csv'  , r'C:\Users\sblee\Downloads\Aesthetics-Toolbox-main\split_1'],   
+            ['AESfeedback_2.results.csv'  , r'.\split_2'],   
             ]
 
 ####################################### set wanted QIPs to 'True', otherwise "False"  #########################
@@ -197,7 +197,7 @@ for entry in datasets:
         
             
                 for key in check_dict:
-              
+                    
                     if (key == 'means RGB') and check_dict[key]:
                         #if gray_scale_img == False:
                         res = color_and_simple_qips.mean_channels(img_rgb)

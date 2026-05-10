@@ -18,7 +18,7 @@ results_path = 'Results'
 
 ### each entry is a pair of the name of the csv file and the path to the image folder, you can enter several datasets/pairs
 datasets = [
-            ['AESfeedback_1.results.csv'  , r'C:\Users\sblee\Downloads\Aesthetics-Toolbox-main\split_1'],   
+            ['AESfeedback_3.results.csv'  , r'C:\Users\sblee\Downloads\Aesthetics-Toolbox-main\split_3'],   
             ]
 
 ####################################### set wanted QIPs to 'True', otherwise "False"  #########################
