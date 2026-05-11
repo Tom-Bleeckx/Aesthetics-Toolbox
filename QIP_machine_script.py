@@ -20,9 +20,10 @@ logger = logging.getLogger(__name__)
 ### set path to save the results csv files
 results_path = 'Results'
 
+
 ### each entry is a pair of the name of the csv file and the path to the image folder, you can enter several datasets/pairs
 datasets = [
-            ['AESfeedback_1.results.csv'  , r'C:\Users\sblee\Downloads\Aesthetics-Toolbox-main\split_1'],   
+            [LOAD.results.csv'  , r'Photos\test'],   
             ]
 
 ####################################### set wanted QIPs to 'True', otherwise "False"  #########################
