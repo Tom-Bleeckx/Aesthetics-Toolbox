@@ -51,7 +51,7 @@ def Balance(img_gray):
     s1 = np.sum(im_comp[:, :w], dtype=int)
     s2 = np.sum(im_comp[:, -w:], dtype=int)
     bh = (abs(s1 - s2) / nall) * 100  
-        
+    
     w2 = width // 4 # adding center row of w to middle area if w uneven 
 
     s1 = np.sum(im_comp[:, :w2], dtype=int)
@@ -130,23 +130,18 @@ def DCM(img_gray):
     else:
         im_comp = img_gray
 
-    nall = np.sum(im_comp)   ### Number of Pixels with value of 0
+    nall = np.sum(im_comp)
+    if nall == 0: nall = 1
     
-    # Horizontal balance point
-    r = 0
-    for i in range(width):
-        w = np.sum(im_comp[:, i],dtype=float)
-        r += w * i
-    Rh = np.round(r / nall) + 1  # x position of fulcrum
-    Rhnorm = Rh / width  # Normalized
+    # Vectorized Horizontal balance point
+    col_sums = np.sum(im_comp, axis=0, dtype=float)
+    Rh = np.round(np.sum(col_sums * np.arange(width)) / nall) + 1
+    Rhnorm = Rh / width
     
-    # Vertical balance point
-    r = 0
-    for i in range(height):
-        w = np.sum(im_comp[i, :],dtype=float)
-        r += w * i
-    Rv = np.round(r / nall) + 1  # y position of fulcrum
-    Rvnorm = Rv / height  # Normalized
+    # Vectorized Vertical balance point
+    row_sums = np.sum(im_comp, axis=1, dtype=float)
+    Rv = np.round(np.sum(row_sums * np.arange(height)) / nall) + 1
+    Rvnorm = Rv / height
 
     htmp = 0.5 - Rhnorm
     vtmp = 0.5 - Rvnorm
@@ -163,75 +158,44 @@ def Mirror_symmetry(img_gray):
     
     Input: Takes a grayscale image in Pillow format as input. 
     Output: Mirror symmetry QIP
-    
-    Usage:
-    Load images like this:
-        
-    Import Image from PIL    
-    
-    img_gray = np.asarray(Image.open( path_to_image_file ).convert('L')) 
-    Mirror_symmetry(img_gray)
     '''
 
-    # Automatically find optimal threshold level
-    level  = threshold_otsu(img_gray)
-
-    # Convert image to binary
+    level = threshold_otsu(img_gray)
     BW = img_gray <= level
+    height, width = BW.shape
 
-    s = BW.shape
-    height = s[0]
-    width = s[1]
+    # Vertical axis of reflection (horizontal symmetry)
+    h2 = height // 2
+    n1_h = h2 - 1 if h2 > 1 else 1
+    BW_top = BW[:h2, :]
+    BW_bottom = np.flipud(BW[height-h2:height, :])
+    weight_h = (1 + np.arange(h2) / n1_h)[:, np.newaxis]
+    Sh = np.sum(BW_top * BW_bottom * weight_h) * (2 / (3 * width * h2))
 
-    # Horizontal axis of reflection (vertical reflection)
-    if height % 2 == 0:  # even number
-        h2 = height // 2
-    else:
-        h2 = (height - 1) // 2
-    n1 = h2 - 1 # why?
-    
-    
-    sym = 0
-    for i in range(width):
-        for j in range(h2):
-            #print(i,j, sym)
-            sym += (BW[j, i] * BW[ (height-1) - (j), i]) * (1 + j / n1)
-    Sh = sym * (2 / (3 * width * h2))
-
-    # Vertical axis of reflection (horizontal reflection)
-    if width % 2 == 0:  # even number
-        w2 = width // 2
-    else:
-        w2 = (width - 1) // 2
-    n1 = w2 - 1
-    
-    sym = 0
-    for i in range(height):
-        for j in range(w2):
-            sym += (BW[i, j] * BW[i, (width-1) - j]) * (1 + j / n1)
-    Sv = sym * (2 / (3 * height * w2))
+    # Horizontal axis of reflection (vertical symmetry)
+    w2 = width // 2
+    n1_w = w2 - 1 if w2 > 1 else 1
+    BW_left = BW[:, :w2]
+    BW_right = np.fliplr(BW[:, width-w2:width])
+    weight_w = (1 + np.arange(w2) / n1_w)[np.newaxis, :]
+    Sv = np.sum(BW_left * BW_right * weight_w) * (2 / (3 * height * w2))
 
     if width == height:
-        # Major diagonal of reflection (ONLY FOR SQUARES)
-        sym = 0
-        n = 1  # Pixels until diagonal
-        for i in range(1,height):
-            for j in range(n):
-                #print(i,j,n)
-                sym += (BW[i, j] * BW[j, i]) * (1 + (j+1) / n)
-            n += 1
-            
-        Smd = sym * (2 / (3 * height * (width - 1) / 2))
-            
-        # Minor diagonal of reflection (ONLY FOR SQUARES)
-        BW = rotate(BW, 90)
-        sym = 0
-        n = 1  # Pixels until diagonal
-        for i in range(1, height):
-            for j in range(n):
-                sym += (BW[i, j] * BW[j, i]) * (1 + (j+1) / n)
-            n += 1
-        Sad = sym * (2 / (3 * height * (width - 1) / 2))
+        # Diagonal symmetries (Squares only)
+        # Major diagonal
+        idx_i, idx_j = np.triu_indices(height, k=1)
+        BW_upper = BW[idx_i, idx_j]
+        BW_lower = BW[idx_j, idx_i]
+        # Weighting for diagonal is complex to vectorize perfectly with loop parity, 
+        # but we can use the same logic: weight = 1 + (j+1)/n where n is pixels until diagonal (which is i)
+        weights_md = 1 + (idx_j + 1) / idx_i
+        Smd = np.sum(BW_upper * BW_lower * weights_md) * (2 / (3 * height * (width - 1) / 2))
+
+        # Minor diagonal
+        BW_rot = np.rot90(BW)
+        BW_upper_r = BW_rot[idx_i, idx_j]
+        BW_lower_r = BW_rot[idx_j, idx_i]
+        Sad = np.sum(BW_upper_r * BW_lower_r * weights_md) * (2 / (3 * height * (width - 1) / 2))
 
         ms = ((Sh + Sv + Smd + Sad) / 4) * 100
     else:
@@ -243,78 +207,45 @@ def Mirror_symmetry(img_gray):
 def Homogeneity(img_gray):  
     '''
     Calculates the "Homogeneity" QIP from Ronald Huebner Group
-    
-    Input: Takes a grayscale image in Pillow format as input. 
-    Output: Homogeneity QIP
-    
-    Usage:
-    Load images like this:
-        
-    Import Image from PIL    
-    
-    img_gray = np.asarray(Image.open( path_to_image_file ).convert('L')) 
-    Homogeneity(img_gray)
     '''
-    
-    # number of bins taken from original paper: Hübner & Fillinger. Comparison of Objective Measures for Predicting Perceptual Balance and Visual Aesthetic Preference. Page: 4
-    hbins = 10;
-    vbins = 10;
-    
+    hbins, vbins = 10, 10
     height, width = img_gray.shape
     
     hist = np.histogram(img_gray, bins=256, range=(0, 256))
     counts = hist[0]
-    thres = 128
-    sum1 = sum(counts[:thres])
-    sum2 = sum(counts[thres-1:])  # hier Fehler in Berechnungen, aber kaum Auswirkunge auf Ergebnisse
-    if sum1 <= sum2:
-        im = 255 - img_gray  # Invert image
-        #print('inverted')
+    if np.sum(counts[:128]) <= np.sum(counts[127:]):
+        im = 255 - img_gray
     else:
         im = img_gray
     
-    level  = threshold_otsu(im)
-    
-    BW = im > level
+    BW = im > threshold_otsu(im)
 
-    hinc = width // hbins
-    vinc = height // vbins
+    # Use block reduction/reshaping to avoid loops
+    hinc, vinc = width // hbins, height // vbins
     
-    x = np.zeros((vbins, hbins))
+    # Handle residuals by cropping to multiple of bins first, 
+    # then adding back the edges if necessary to match original logic
+    BW_core = BW[:vinc*vbins, :hinc*hbins]
+    x = BW_core.reshape(vbins, vinc, hbins, hinc).sum(axis=(1, 3))
     
-    ## summing up black pixels in cells
-    for i in range(hbins+1):
-        for j in range(vbins+1):
-            if (i!=hbins) and (j!=vbins): # inner pieces
-                x[j,i] = np.sum( BW[ vinc * j : (j+1) * vinc ,  hinc*i : hinc * (i+1)     ]    )
-            elif (i<hbins) and (j==vbins): # residuals vertical
-                x[j-1,i]   += np.sum( BW[ vinc * j :  ,  hinc*i : hinc * (i+1)     ]    )
-            elif (i==hbins) and (j<vbins): # residuals horizontal
-                x[j,i-1]   += np.sum( BW[ vinc * j : (j+1) * vinc ,  hinc*i :      ]    )
-            elif (i==hbins) and (j==vbins): # residuals horizontal
-                x[j-1,i-1] += np.sum( BW[ vinc * j :  ,  hinc*i :     ]    )
+    # Add residuals to the last rows/cols as per original logic
+    if height > vinc * vbins:
+        x[-1, :] += BW[vinc*vbins:, :hinc*hbins].reshape(-1, hbins, hinc).sum(axis=(0, 2))
+    if width > hinc * hbins:
+        x[:, -1] += BW[:vinc*vbins, hinc*hbins:].reshape(vbins, vinc, -1).sum(axis=(1, 2))
+    if height > vinc * vbins and width > hinc * hbins:
+        x[-1, -1] += BW[vinc*vbins:, hinc*hbins:].sum()
     
-    nbins = hbins * vbins
-    max_entropy = np.log2(nbins)
+    all_sum = np.sum(x)
+    if all_sum == 0: return 0
     
-    xh = x.flatten(order='F')
-    all_sum = np.sum(xh)
-    
-    # horizontal entropy
-    max_entropy = np.log2(hbins)   
-    y = np.sum(x, axis=0) / all_sum
-    j = np.nonzero(y)
-    en = -np.sum(y[j] * np.log2(y[j]))
-    en_hori = (en / max_entropy) * 100
-    
-    #vertical entropy
-    max_entropy = np.log2(vbins)
-    y = np.sum(x.T, axis=0) / all_sum
-    j = np.nonzero(y)
-    en = -np.sum(y[j] * np.log2(y[j]))
-    en_vert = (en / max_entropy) * 100
+    # Entropy calculations
+    def calc_entropy(probs, max_val):
+        probs = probs[probs > 0]
+        return (-np.sum(probs * np.log2(probs)) / np.log2(max_val)) * 100
 
-    # average of hori and vert entropy
-    en_av = (en_hori + en_vert) / 2
+    en_hori = calc_entropy(np.sum(x, axis=0) / all_sum, hbins)
+    en_vert = calc_entropy(np.sum(x, axis=1) / all_sum, vbins)
     
-    return en_av
+    return (en_hori + en_vert) / 2
+

@@ -38,19 +38,17 @@ def fractal_dimension_2d(img_gray):
     b = b.astype(np.uint8)
 
     x, y = [], []
-    i = 1
     while b.shape[0] > 6:
         x.append(b.shape[0])
         y.append(np.sum(b))
 
-        c = np.zeros((b.shape[0]//2, b.shape[1]//2))
-        for xx in range(c.shape[0]):
-            for yy in range(c.shape[1]):
-
-                c[xx, yy] = np.sum (  b[xx*2  : xx*2 + 2  , yy*2 : yy*2 + 2 ]  )
+        # Vectorized 2x2 block sum
+        h, w = b.shape
+        # Ensure dimensions are even for reshaping
+        b_even = b[:h - h % 2, :w - w % 2]
+        c = b_even.reshape(h // 2, 2, w // 2, 2).sum(axis=(1, 3))
 
         b = (c > 0) & (c < 4)
-        i += 1
 
     params = np.polyfit(np.log2(x[1:]), np.log2(y[1:]), 1)
     D = params[0]
