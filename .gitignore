@@ -1,6 +1,7 @@
 # Data and Results
 results/
 images/
+Photo's/
 *.csv
 *.npy
 
