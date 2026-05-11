@@ -96,18 +96,18 @@ def entropy(a):
 
 
 def do_statistics(counts, GABOR_BINS=24):
-    # normalize by sum
-    counts_sum = np.sum(counts, axis=2) + 0.00001
-    normalized_counts = counts / (counts_sum[:,:,np.newaxis])
-    d,a,_ = normalized_counts.shape
-    shannon_nan = np.zeros((d,a))
-    for di in range(d):
-      for ai in range(a):
-        if counts_sum[di,ai]>1:  ## ignore bins without pixels
-            shannon_nan[di,ai] = entropy(normalized_counts[di,ai,:])
-        else:
-            shannon_nan[di,ai] = np.nan
-    return shannon_nan
+    # Vectorized normalization and entropy calculation
+    counts_sum = np.sum(counts, axis=2)
+    
+    with np.errstate(divide='ignore', invalid='ignore'):
+        probs = counts / counts_sum[:, :, np.newaxis]
+        log_probs = np.log2(probs)
+        log_probs[~np.isfinite(log_probs)] = 0
+        shannon = -np.sum(probs * log_probs, axis=2)
+        # Apply the mask: ignore bins with <= 1 sum
+        shannon[counts_sum <= 1] = np.nan
+        
+    return shannon
 
          
 def edge_resize (img_gray_np, max_pixels = 300*400):

@@ -40,61 +40,42 @@ def maxGradient_fast(Img):
 
 def computeDescriptor(GradientValue, GradientAngle, bins, angle, levels, section, is_global=False):
     descriptor = []
-
-    intervalSize = angle / bins
-    halfIntervalSize = (angle / bins) / 2
     
+    def get_hist(val_cell, ang_cell):
+        # Adjust angles for periodic binning (half interval shift)
+        # The original code uses a shift of halfIntervalSize and treats it periodically
+        half_interval = (angle / bins) / 2
+        shifted_angles = np.mod(ang_cell + half_interval, angle)
+        hist, _ = np.histogram(shifted_angles, bins=bins, range=(0, angle), weights=val_cell)
+        return hist.tolist()
+
     # Level 0
-    ind = ((GradientAngle >= angle - halfIntervalSize) | (GradientAngle < halfIntervalSize))
-    descriptor.append(np.sum(GradientValue[ind]))
-
-    for b in range(1, bins):
-        ind = ((GradientAngle >= (b * intervalSize) - halfIntervalSize) & (GradientAngle < ((b + 1) * intervalSize) - halfIntervalSize))
-        descriptor.append(np.sum(GradientValue[ind]))
-
-    ### local normaliszation for global
+    descriptor.extend(get_hist(GradientValue, GradientAngle))
+    
     if is_global:
         descriptor = normalizeDescriptor(descriptor, bins)
 
     # Other levels
     for l in range(1, levels + 1):
-        cellSizeX = GradientAngle.shape[1] / (section ** l)
-        cellSizeY = GradientAngle.shape[0] / (section ** l)
-        
-        if cellSizeX < 1 or cellSizeY < 1:
-            raise ValueError("Cell size is less than 1. Adjust the number of levels.")
+        num_cells = section ** l
+        # Use np.array_split for more robust cell division if needed, 
+        # but sticking close to original logic for consistency
+        y_edges = np.round(np.linspace(0, GradientAngle.shape[0], num_cells + 1)).astype(int)
+        x_edges = np.round(np.linspace(0, GradientAngle.shape[1], num_cells + 1)).astype(int)
 
-        for j in range(1, section ** l + 1):
-
-            leftX = 1 + np.round((j - 1) * cellSizeX).astype(np.int64)
-            rightX = np.round(j * cellSizeX).astype(np.int64)
-            
-            for i in range(1, section ** l + 1):
-
-                topY = 1 + np.round((i - 1) * cellSizeY).astype(np.int64)
-                bottomY = np.round(i * cellSizeY).astype(np.int64)
-
-                GradientValueCell = GradientValue[topY - 1:bottomY, leftX - 1:rightX]
-                GradientAngleCell = GradientAngle[topY - 1:bottomY, leftX - 1:rightX]
-
-                ind = ((GradientAngleCell >= angle - halfIntervalSize) | (GradientAngleCell < halfIntervalSize))
-                local_descriptor = [np.sum(GradientValueCell[ind])]
-
-                for b in range(1, bins):
-                    ind = ((GradientAngleCell >= (b * intervalSize) - halfIntervalSize) & (GradientAngleCell < ((b + 1) * intervalSize) - halfIntervalSize))
-                    local_descriptor.append(np.sum(GradientValueCell[ind]))
-
+        for i in range(num_cells):
+            for j in range(num_cells):
+                val_cell = GradientValue[y_edges[i]:y_edges[i+1], x_edges[j]:x_edges[j+1]]
+                ang_cell = GradientAngle[y_edges[i]:y_edges[i+1], x_edges[j]:x_edges[j+1]]
+                
+                local_hist = get_hist(val_cell, ang_cell)
                 if is_global:
-                    local_descriptor = normalizeDescriptor(local_descriptor, bins);
-                    descriptor.extend(local_descriptor)
-                else:
-                    descriptor.extend(local_descriptor)
+                    local_hist = normalizeDescriptor(local_hist, bins)
+                descriptor.extend(local_hist)
 
     if is_global:
-        descriptorglobal = normalizeDescriptorGlobal(descriptor)
-        return descriptorglobal
-    else:
-        return descriptor
+        return normalizeDescriptorGlobal(descriptor)
+    return descriptor
 
 
 def computePHOGLAB(Img, angle, bins, levels, section):
