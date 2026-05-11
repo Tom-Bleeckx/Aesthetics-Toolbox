@@ -51,28 +51,32 @@ def rotavg(array):
     f = np.zeros((N//2+1, 9))
     a = np.arange(0, np.pi + np.pi/8, np.pi/8)
     
-    for i in range(rho.shape[0]):
-        for j in range(rho.shape[1]):
-            rh = rho[i, j]
-            value = array[i, j]
-            
-            if rh <= N/2:
-                I[rh, 8] += 1
-                if I[rh, 8] == 1:
-                    f[rh, 8] = value
-                    #print(value)
-                else:
-                    f[rh, 8] = f[rh, 8] + (value - f[rh, 8]) / I[rh, 8]
-            
-            for k in range(8):
-                if a[k] <= theta[i, j] < a[k+1]:
-                    if rh <= N/2:
-                        I[rh, k] += 1
-                        if I[rh, k] == 1:
-                            f[rh, k] = value
-                        else:
-                            f[rh, k] = f[rh, k] + (value - f[rh, k]) / I[rh, k]
-                    break
+    mask = rho <= N/2
+    rho_valid = rho[mask]
+    theta_valid = theta[mask]
+    val_valid = array[mask]
+
+    angle_bins = np.digitize(theta_valid, a) - 1
+
+    count_8 = np.bincount(rho_valid, minlength=N//2+1)
+    sum_8 = np.bincount(rho_valid, weights=val_valid, minlength=N//2+1)
+    f[:, 8] = np.divide(sum_8, count_8, out=np.zeros_like(sum_8), where=count_8 != 0)
+
+    valid_angle_mask = (angle_bins >= 0) & (angle_bins < 8)
+    rho_sec = rho_valid[valid_angle_mask]
+    ang_sec = angle_bins[valid_angle_mask]
+    val_sec = val_valid[valid_angle_mask]
+
+    flat_idx = rho_sec * 8 + ang_sec
+    max_idx = (N//2+1) * 8
+    
+    count_sec = np.bincount(flat_idx, minlength=max_idx)
+    sum_sec = np.bincount(flat_idx, weights=val_sec, minlength=max_idx)
+    
+    f_sec = np.divide(sum_sec, count_sec, out=np.zeros_like(sum_sec, dtype=float), where=count_sec != 0)
+    f_sec = f_sec.reshape(-1, 8)
+    f[:f_sec.shape[0], :8] = f_sec
+    
     return f
 
 
@@ -193,13 +197,11 @@ def rot_avg(array):
     X, Y = np.meshgrid(np.arange(-N/2, N/2), np.arange(-N/2, N/2))
     rho = np.sqrt(X**2 + Y**2).round().astype(int)
 
-    f = np.zeros((N//2 + 1))
-
-    for r in range(N//2 + 1):
-        mask = (rho == r)
-        if np.any(mask):
-            f[r] = np.mean(array[mask])
-
+    valid = rho <= N//2
+    count = np.bincount(rho[valid], minlength=N//2+1)
+    sum_val = np.bincount(rho[valid], weights=array[valid], minlength=N//2+1)
+    
+    f = np.divide(sum_val, count, out=np.zeros_like(sum_val, dtype=float), where=count != 0)
     return f
 
 
@@ -284,9 +286,10 @@ def rotavg_mather(array):
     N, _ = array.shape
     X, Y = np.meshgrid(np.arange(-N/2, N/2), np.arange(-N/2, N/2))
     rho = np.round(np.sqrt(X**2 + Y**2)).astype(int)
-    f = np.zeros(int(N/2) + 1)
-    for r in range(int(N/2) + 1):
-        f[r] = np.mean(array[np.where(rho == r)])
+    valid = rho <= N//2
+    count = np.bincount(rho[valid], minlength=int(N//2) + 1)
+    sum_val = np.bincount(rho[valid], weights=array[valid], minlength=int(N//2) + 1)
+    f = np.divide(sum_val, count, out=np.zeros_like(sum_val, dtype=float), where=count != 0)
     return f
 
 def center_crop_mather (img_rgb): 

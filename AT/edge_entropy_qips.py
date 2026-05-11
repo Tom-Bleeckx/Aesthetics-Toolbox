@@ -83,6 +83,7 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
 
         direction = np.round(np.arctan2(ey-ey[cp], ex-ex[cp]) / (2.0*np.pi)*CIRC_BINS + (orientations[cp]/float(GABOR_BINS)*CIRC_BINS)).astype("uint32")
         direction = np.mod(direction+CIRC_BINS, CIRC_BINS)
+        
         np.add.at(counts, tuple([distance_rel, direction, orientations_rel]), resp_val[ey,ex] * resp_val[ey[cp],ex[cp]])
 
     return counts, resp_val

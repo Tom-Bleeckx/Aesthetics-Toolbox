@@ -65,10 +65,8 @@ def max_pooling (resp, patches ):
         for w in range(patches):
             ph = h*patch_h
             pw = w*patch_w
-            patch_val = resp[:,int(ph):int(ph+patch_h), int(pw):int(pw+patch_w)]
-
-            for b in range(i_filters):
-                max_pool_map[h,w,b] = np.max(patch_val[b])
+            patch_val = resp[:, int(ph):int(ph+patch_h), int(pw):int(pw+patch_w)]
+            max_pool_map[h, w, :] = np.max(patch_val, axis=(1, 2))
 
     max_pool_map_sum = np.sum(max_pool_map, axis=2)
     normalized_max_pool_map = max_pool_map / max_pool_map_sum[:,:,np.newaxis]
