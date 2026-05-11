@@ -1,0 +1,22 @@
+# Data and Results
+results/
+images/
+*.csv
+*.npy
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
