@@ -23,7 +23,7 @@ results_path = 'Results'
 
 ### each entry is a pair of the name of the csv file and the path to the image folder, you can enter several datasets/pairs
 datasets = [
-            [LOAD.results.csv'  , r'Photos\test'],   
+            ['LOAD.results.csv'  , r'Photos\test'],   
             ]
 
 ####################################### set wanted QIPs to 'True', otherwise "False"  #########################
