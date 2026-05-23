@@ -26,7 +26,7 @@ def conv2d(input_img, kernel, bias):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Convert input to PyTorch tensor format: (Batch, Channels, Height, Width)
-    input_tensor = torch.from_numpy(input_img).permute(2, 0, 1).unsqueeze(0).to(device)
+    input_tensor = torch.from_numpy(input_img).permute(2, 0, 1).unsqueeze(0).float().to(device)
     
     # Kernel shape in numpy: (kH, kW, in_channels, out_channels)
     # PyTorch needs: (out_channels, in_channels, kH, kW)
