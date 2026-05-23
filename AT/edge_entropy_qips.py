@@ -1,7 +1,8 @@
 import numpy as np
-from scipy.ndimage import convolve
 import PIL
 import warnings
+import torch
+import torch.nn.functional as F
 
 
 
@@ -35,13 +36,28 @@ def create_filterbank(flt_size=31 , num_filters=24):
 
 
 def run_filterbank(flt_raw, img, num_filters=24):
-    (h, w) = img.shape
     num_filters = flt_raw.shape[0]
-    image_flt = np.zeros((num_filters,h,w))
 
-    for i in range(num_filters):
-        image_flt[i,:,:] = convolve(img, flt_raw[i,:,:])
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    # Input: (1, 1, H, W)  —  single grayscale image
+    img_tensor = torch.from_numpy(img).unsqueeze(0).unsqueeze(0).float().to(device)
+    
+    # Kernel: (num_filters, 1, kH, kW) — each Gabor filter as a separate output channel
+    kernel_tensor = torch.from_numpy(flt_raw).unsqueeze(1).float().to(device)
+    
+    # Pad to get same-size output (scipy convolve uses 'reflect' padding by default)
+    pad_h = flt_raw.shape[1] // 2
+    pad_w = flt_raw.shape[2] // 2
+    img_padded = torch.nn.functional.pad(img_tensor, (pad_w, pad_w, pad_h, pad_h), mode='reflect')
+    
+    with torch.no_grad():
+        # Single batched convolution: all 24 filters at once
+        image_flt = F.conv2d(img_padded, kernel_tensor)
+    
+    # Back to numpy: (num_filters, H, W)
+    image_flt = image_flt[0].cpu().numpy()
+    
     resp_bin = np.argmax(image_flt, axis=0)
     resp_val = np.max(image_flt, axis=0)
     
