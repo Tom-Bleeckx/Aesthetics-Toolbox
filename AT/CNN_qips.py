@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.signal import correlate
 from skimage.transform import resize
 import torch
 import torch.nn.functional as F

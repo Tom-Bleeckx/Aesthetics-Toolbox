@@ -9,6 +9,10 @@ from tqdm import tqdm
 import logging
 from pathlib import Path
 import concurrent.futures
+import warnings
+
+# Suppress expected mathematical warnings (like divide by zero or invalid multiply) from NumPy/SciPy features
+warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 ### custom import
 from AT import balance_qips, CNN_qips, color_and_simple_qips, edge_entropy_qips, fourier_qips, fractal_dimension_qips, PHOG_qips
@@ -214,12 +218,15 @@ _global_registry = None
 
 def init_worker():
     global _global_kernel, _global_bias, _global_registry
+    # Suppress RuntimeWarnings in worker processes (they don't inherit the main process filter)
+    warnings.filterwarnings('ignore', category=RuntimeWarning)
     logger.debug(f"Worker {os.getpid()} initializing: Loading AlexNet kernel and QIP registry...")
     [_global_kernel, _global_bias] = np.load(open("AT/bvlc_alexnet_conv1.npy", "rb"), encoding="latin1", allow_pickle=True)
     _global_registry = get_qip_registry()
     logger.debug(f"Worker {os.getpid()} initialization complete.")
 
 def process_single_file(file_dir, enabled_keys, dict_multi, dict_names):
+    start_t = time.time()
     try:
         handler = LazyImageHandler(file_dir, _global_kernel, _global_bias)
         file_name = os.path.basename(file_dir).replace(",", "_")
@@ -234,10 +241,12 @@ def process_single_file(file_dir, enabled_keys, dict_multi, dict_names):
             else:
                 col_name = dict_names.get(key, key)
                 row[col_name] = custom_round(res)
-        return row
+                
+        duration = time.time() - start_t
+        return row, duration
     except Exception as e:
         logger.error(f"Error processing {file_dir}: {e}")
-        return None
+        return None, 0
 
 def main():
     enabled_keys = [k for k, v in check_dict.items() if v]
@@ -296,8 +305,9 @@ def main():
             }
             
             for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Processing {csv_name}", unit="img"):
-                row = future.result()
+                row, duration = future.result()
                 if row is not None:
+                    tqdm.write(f"  -> Processed: {row['img_file']} in {duration:.2f}s")
                     results_batch.append(row)
 
                 if len(results_batch) >= batch_size:
