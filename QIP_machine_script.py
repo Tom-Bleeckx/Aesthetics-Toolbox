@@ -284,7 +284,19 @@ def main():
         logger.info(f"Found {len(file_paths)} new images to process ({skipped_count} skipped).")
 
         results_batch = []
-        batch_size = 50
+        # Small batch size to minimize data loss if the process is interrupted (Ctrl+C).
+        # Results are only saved to disk when a batch is full, so at most batch_size-1 images
+        # could be lost on interruption and would need to be recomputed on restart.
+        batch_size = 5
+        csv_header_written = full_csv_path.exists()
+
+        def flush_batch():
+            nonlocal results_batch, csv_header_written
+            if results_batch:
+                df = pd.DataFrame(results_batch)
+                df.to_csv(full_csv_path, mode='a', index=False, header=not csv_header_written)
+                csv_header_written = True
+                results_batch = []
 
         # Process with multiprocessing
         logger.info("Spinning up worker processes and starting feature extraction...")
@@ -293,32 +305,32 @@ def main():
         # 4 workers is a safe default for most consumer GPUs.
         optimal_workers = min(4, os.cpu_count() or 1)
         
-        with concurrent.futures.ProcessPoolExecutor(max_workers=optimal_workers, initializer=init_worker) as executor:
-            futures = {
-                executor.submit(
-                    process_single_file, 
-                    fd, 
-                    enabled_keys, 
-                    dict_of_multi_measures, 
-                    dict_full_names_QIPs
-                ): fd for fd in file_paths
-            }
-            
-            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Processing {csv_name}", unit="img"):
-                row, duration = future.result()
-                if row is not None:
-                    tqdm.write(f"  -> Processed: {row['img_file']} in {duration:.2f}s")
-                    results_batch.append(row)
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=optimal_workers, initializer=init_worker) as executor:
+                futures = {
+                    executor.submit(
+                        process_single_file, 
+                        fd, 
+                        enabled_keys, 
+                        dict_of_multi_measures, 
+                        dict_full_names_QIPs
+                    ): fd for fd in file_paths
+                }
+                
+                for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Processing {csv_name}", unit="img"):
+                    row, duration = future.result()
+                    if row is not None:
+                        tqdm.write(f"  -> Processed: {row['img_file']} in {duration:.2f}s")
+                        results_batch.append(row)
 
-                if len(results_batch) >= batch_size:
-                    df = pd.DataFrame(results_batch)
-                    df.to_csv(full_csv_path, mode='a', index=False, header=not full_csv_path.exists())
-                    results_batch = []
+                    if len(results_batch) >= batch_size:
+                        flush_batch()
 
-        # Final batch
-        if results_batch:
-            df = pd.DataFrame(results_batch)
-            df.to_csv(full_csv_path, mode='a', index=False, header=not full_csv_path.exists())
+        except KeyboardInterrupt:
+            logger.info("Interrupted! Saving progress...")
+        finally:
+            # Always flush remaining results, even on Ctrl+C
+            flush_batch()
             
         elapsed_time = time.time() - start_time
         logger.info(f"=== Completed dataset {csv_name} in {elapsed_time:.2f} seconds ===")
