@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 import concurrent.futures
 import warnings
+import signal
 
 # Suppress expected mathematical warnings (like divide by zero or invalid multiply) from NumPy/SciPy features
 warnings.filterwarnings('ignore', category=RuntimeWarning)
@@ -248,7 +249,21 @@ def process_single_file(file_dir, enabled_keys, dict_multi, dict_names):
         logger.error(f"Error processing {file_dir}: {e}")
         return None, 0
 
+# Global stop flag for graceful Ctrl+C shutdown
+_stop_requested = False
+
+def _signal_handler(signum, frame):
+    global _stop_requested
+    _stop_requested = True
+    print("\nProcess interrupted. Saving progress...", flush=True)
+
 def main():
+    global _stop_requested
+    _stop_requested = False
+    
+    # Install signal handler so Ctrl+C sets our flag immediately
+    signal.signal(signal.SIGINT, _signal_handler)
+    
     enabled_keys = [k for k, v in check_dict.items() if v]
 
     for csv_name, image_path in datasets:
@@ -284,9 +299,6 @@ def main():
         logger.info(f"Found {len(file_paths)} new images to process ({skipped_count} skipped).")
 
         results_batch = []
-        # Small batch size to minimize data loss if the process is interrupted (Ctrl+C).
-        # Results are only saved to disk when a batch is full, so at most batch_size-1 images
-        # could be lost on interruption and would need to be recomputed on restart.
         batch_size = 5
         csv_header_written = full_csv_path.exists()
 
@@ -301,44 +313,58 @@ def main():
         # Process with multiprocessing
         logger.info("Spinning up worker processes and starting feature extraction...")
         
-        # Limit max_workers to avoid CUDA Out of Memory errors from too many concurrent GPU contexts.
-        # 4 workers is a safe default for most consumer GPUs.
         optimal_workers = min(4, os.cpu_count() or 1)
         
-        try:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=optimal_workers, initializer=init_worker) as executor:
-                futures = {
-                    executor.submit(
-                        process_single_file, 
-                        fd, 
-                        enabled_keys, 
-                        dict_of_multi_measures, 
-                        dict_full_names_QIPs
-                    ): fd for fd in file_paths
-                }
-                
-                for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Processing {csv_name}", unit="img"):
-                    row, duration = future.result()
-                    if row is not None:
-                        tqdm.write(f"  -> Processed: {row['img_file']} in {duration:.2f}s")
-                        results_batch.append(row)
+        executor = concurrent.futures.ProcessPoolExecutor(max_workers=optimal_workers, initializer=init_worker)
+        futures = {
+            executor.submit(
+                process_single_file, 
+                fd, 
+                enabled_keys, 
+                dict_of_multi_measures, 
+                dict_full_names_QIPs
+            ): fd for fd in file_paths
+        }
+        
+        pbar = tqdm(total=len(futures), desc=f"Processing {csv_name}", unit="img")
+        
+        for future in concurrent.futures.as_completed(futures):
+            if _stop_requested:
+                break
+            try:
+                row, duration = future.result(timeout=0.1)
+                if row is not None:
+                    tqdm.write(f"  -> Processed: {row['img_file']} in {duration:.2f}s")
+                    results_batch.append(row)
+                pbar.update(1)
+            except concurrent.futures.TimeoutError:
+                continue
+            except Exception as e:
+                pbar.update(1)
+                continue
 
-                    if len(results_batch) >= batch_size:
-                        flush_batch()
-
-        except KeyboardInterrupt:
-            logger.info("Interrupted! Cancelling remaining tasks and saving progress...")
-            # Cancel all pending futures that haven't started yet
-            for future in futures:
-                future.cancel()
-            # Force shutdown workers immediately
-            executor.shutdown(wait=False, cancel_futures=True)
-        finally:
-            # Always flush remaining results, even on Ctrl+C
-            flush_batch()
+            if len(results_batch) >= batch_size:
+                flush_batch()
+        
+        pbar.close()
+        
+        # Clean up: cancel pending futures and kill workers
+        if _stop_requested:
+            logger.info("Saving processed batch and canceling remaining tasks...")
+            for f in futures:
+                f.cancel()
+        
+        executor.shutdown(wait=not _stop_requested, cancel_futures=_stop_requested)
+        
+        # Always save whatever we have
+        flush_batch()
             
         elapsed_time = time.time() - start_time
         logger.info(f"=== Completed dataset {csv_name} in {elapsed_time:.2f} seconds ===")
+        
+        if _stop_requested:
+            break
 
 if __name__ == "__main__":
     main()
+
