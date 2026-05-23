@@ -3,10 +3,12 @@ import numpy as np
 from PIL import Image
 from skimage import color
 import os
+import time
 import pandas as pd
 from tqdm import tqdm
 import logging
 from pathlib import Path
+import concurrent.futures
 
 ### custom import
 from AT import balance_qips, CNN_qips, color_and_simple_qips, edge_entropy_qips, fourier_qips, fractal_dimension_qips, PHOG_qips
@@ -205,12 +207,45 @@ def get_qip_registry():
         'Anisotropy': lambda h: h.phog_results[2],
     }
 
+# Worker globals for multiprocessing
+_global_kernel = None
+_global_bias = None
+_global_registry = None
+
+def init_worker():
+    global _global_kernel, _global_bias, _global_registry
+    logger.debug(f"Worker {os.getpid()} initializing: Loading AlexNet kernel and QIP registry...")
+    [_global_kernel, _global_bias] = np.load(open("AT/bvlc_alexnet_conv1.npy", "rb"), encoding="latin1", allow_pickle=True)
+    _global_registry = get_qip_registry()
+    logger.debug(f"Worker {os.getpid()} initialization complete.")
+
+def process_single_file(file_dir, enabled_keys, dict_multi, dict_names):
+    try:
+        handler = LazyImageHandler(file_dir, _global_kernel, _global_bias)
+        file_name = os.path.basename(file_dir).replace(",", "_")
+        
+        row = {'img_file': file_name}
+        for key in enabled_keys:
+            res = _global_registry[key](handler)
+            
+            if key in dict_multi:
+                for i, sub_key in enumerate(dict_multi[key]):
+                    row[sub_key] = custom_round(res[i])
+            else:
+                col_name = dict_names.get(key, key)
+                row[col_name] = custom_round(res)
+        return row
+    except Exception as e:
+        logger.error(f"Error processing {file_dir}: {e}")
+        return None
+
 def main():
-    registry = get_qip_registry()
-    [kernel, bias] = np.load(open("AT/bvlc_alexnet_conv1.npy", "rb"), encoding="latin1", allow_pickle=True)
+    enabled_keys = [k for k, v in check_dict.items() if v]
 
     for csv_name, image_path in datasets:
-        logger.info(f"Processing dataset: {csv_name}")
+        logger.info(f"=== Starting processing for dataset: {csv_name} ===")
+        start_time = time.time()
+        
         full_csv_path = Path(results_path) / csv_name
         full_csv_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -219,54 +254,59 @@ def main():
         if full_csv_path.exists():
             try:
                 existing_imgs = set(pd.read_csv(full_csv_path, usecols=['img_file'])['img_file'].tolist())
+                logger.info(f"Found existing CSV with {len(existing_imgs)} previously processed images.")
             except Exception as e:
                 logger.warning(f"Could not read existing CSV: {e}")
 
         # Collect files to process
         file_paths = []
+        skipped_count = 0
         for root, _, files in os.walk(image_path):
             for file in files:
                 if file.replace(",", "_") not in existing_imgs:
                     file_paths.append(os.path.join(root, file))
+                else:
+                    skipped_count += 1
 
         if not file_paths:
-            logger.info("No new files to process.")
+            logger.info(f"All {skipped_count} images were already processed. No new files to process for {csv_name}.")
             continue
+            
+        logger.info(f"Found {len(file_paths)} new images to process ({skipped_count} skipped).")
 
         results_batch = []
         batch_size = 50
 
-        for file_dir in tqdm(file_paths):
-            try:
-                handler = LazyImageHandler(file_dir, kernel, bias)
-                file_name = os.path.basename(file_dir).replace(",", "_")
-                
-                row = {'img_file': file_name}
-                for key, enabled in check_dict.items():
-                    if enabled:
-                        res = registry[key](handler)
-                        
-                        if key in dict_of_multi_measures:
-                            for i, sub_key in enumerate(dict_of_multi_measures[key]):
-                                row[sub_key] = custom_round(res[i])
-                        else:
-                            col_name = dict_full_names_QIPs.get(key, key)
-                            row[col_name] = custom_round(res)
-                
-                results_batch.append(row)
+        # Process with multiprocessing
+        logger.info("Spinning up worker processes and starting feature extraction...")
+        with concurrent.futures.ProcessPoolExecutor(initializer=init_worker) as executor:
+            futures = {
+                executor.submit(
+                    process_single_file, 
+                    fd, 
+                    enabled_keys, 
+                    dict_of_multi_measures, 
+                    dict_full_names_QIPs
+                ): fd for fd in file_paths
+            }
+            
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Processing {csv_name}", unit="img"):
+                row = future.result()
+                if row is not None:
+                    results_batch.append(row)
 
                 if len(results_batch) >= batch_size:
                     df = pd.DataFrame(results_batch)
                     df.to_csv(full_csv_path, mode='a', index=False, header=not full_csv_path.exists())
                     results_batch = []
 
-            except Exception as e:
-                logger.error(f"Error processing {file_dir}: {e}")
-
         # Final batch
         if results_batch:
             df = pd.DataFrame(results_batch)
             df.to_csv(full_csv_path, mode='a', index=False, header=not full_csv_path.exists())
+            
+        elapsed_time = time.time() - start_time
+        logger.info(f"=== Completed dataset {csv_name} in {elapsed_time:.2f} seconds ===")
 
 if __name__ == "__main__":
     main()

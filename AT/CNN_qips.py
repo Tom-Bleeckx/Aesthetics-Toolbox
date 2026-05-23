@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.signal import correlate
 from skimage.transform import resize
+import torch
+import torch.nn.functional as F
 
 ################################ helper functions #####################################
 
@@ -20,37 +22,27 @@ def conv2d(input_img, kernel, bias):
     
     input_img = resize_and_add_ImageNet_mean(input_img )
     
-    # Get input data dimensions
-    in_height, in_width, in_channels = input_img.shape
-
-    # Get kernel dimensions
-    k_height, k_width, in_channels, out_channels = kernel.shape
-
-    # Calculate output dimensions
-    out_height = int(np.ceil(float(in_height - k_height + 1) / float(4)))
-    out_width = int(np.ceil(float(in_width - k_width + 1) / float(4)))
-
-    # Allocate output data
-    output_data = np.zeros((out_height, out_width, out_channels))
-
-    # Convolve each input channel with its corresponding kernel and sum the results
-    for j in range(out_channels):
-        for i in range(in_channels):
-            output_data[:, :, j] += correlate(
-                input_img[:, :, i],
-                kernel[:, :, i, j],
-                mode='valid'
-            )[::4, ::4]
-
-        # Add bias to the output
-        output_data[:, :, j] += bias[j]
-        
-    ## relu activation function
-    output_data[output_data < 0] = 0
+    # Set device to GPU if available, else CPU
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    ### swap axis to order: filters, dim1_filters, dim2_filters (96,126,126)
-    output_data = np.swapaxes(output_data,2,0)
-    output_data = np.swapaxes(output_data,1,2)
+    # Convert input to PyTorch tensor format: (Batch, Channels, Height, Width)
+    input_tensor = torch.from_numpy(input_img).permute(2, 0, 1).unsqueeze(0).to(device)
+    
+    # Kernel shape in numpy: (kH, kW, in_channels, out_channels)
+    # PyTorch needs: (out_channels, in_channels, kH, kW)
+    kernel_tensor = torch.from_numpy(kernel).permute(3, 2, 0, 1).float().to(device)
+    
+    # Bias shape in numpy: (out_channels,)
+    bias_tensor = torch.from_numpy(bias).float().to(device)
+    
+    # Apply conv2d with stride 4
+    with torch.no_grad():
+        out = F.conv2d(input_tensor, kernel_tensor, bias=bias_tensor, stride=4)
+        out = F.relu(out)
+        
+    # Convert output back to expected numpy format: (out_channels, Height, Width)
+    # PyTorch outputs: (1, out_channels, outH, outW), so we take the first batch item
+    output_data = out[0].cpu().numpy()
         
     return output_data
 
