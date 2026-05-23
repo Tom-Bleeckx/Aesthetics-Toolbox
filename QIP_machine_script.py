@@ -279,7 +279,12 @@ def main():
 
         # Process with multiprocessing
         logger.info("Spinning up worker processes and starting feature extraction...")
-        with concurrent.futures.ProcessPoolExecutor(initializer=init_worker) as executor:
+        
+        # Limit max_workers to avoid CUDA Out of Memory errors from too many concurrent GPU contexts.
+        # 4 workers is a safe default for most consumer GPUs.
+        optimal_workers = min(4, os.cpu_count() or 1)
+        
+        with concurrent.futures.ProcessPoolExecutor(max_workers=optimal_workers, initializer=init_worker) as executor:
             futures = {
                 executor.submit(
                     process_single_file, 
