@@ -15,35 +15,57 @@ def resize_and_add_ImageNet_mean(img):
     return img
 
 
+def _prepare_input(input_img):
+    """Prepare a single image for CNN processing (channel reorder, resize, normalize)."""
+    img = input_img[:,:,(2,1,0)].astype(np.float32)  ## Caffe Net used different channel orders
+    img = resize_and_add_ImageNet_mean(img)
+    return img
+
+
 def conv2d(input_img, kernel, bias):
+    """Process a single image through AlexNet conv1."""
+    input_img = _prepare_input(input_img)
     
-    input_img = input_img[:,:,(2,1,0)].astype(np.float32)  ## Caffe Net used different channel orders
-    
-    input_img = resize_and_add_ImageNet_mean(input_img )
-    
-    # Set device to GPU if available, else CPU
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Convert input to PyTorch tensor format: (Batch, Channels, Height, Width)
     input_tensor = torch.from_numpy(input_img).permute(2, 0, 1).unsqueeze(0).float().to(device)
-    
-    # Kernel shape in numpy: (kH, kW, in_channels, out_channels)
-    # PyTorch needs: (out_channels, in_channels, kH, kW)
     kernel_tensor = torch.from_numpy(kernel).permute(3, 2, 0, 1).float().to(device)
-    
-    # Bias shape in numpy: (out_channels,)
     bias_tensor = torch.from_numpy(bias).float().to(device)
     
-    # Apply conv2d with stride 4
     with torch.no_grad():
         out = F.conv2d(input_tensor, kernel_tensor, bias=bias_tensor, stride=4)
         out = F.relu(out)
         
-    # Convert output back to expected numpy format: (out_channels, Height, Width)
-    # PyTorch outputs: (1, out_channels, outH, outW), so we take the first batch item
     output_data = out[0].cpu().numpy()
-        
     return output_data
+
+
+def conv2d_batch(input_imgs, kernel, bias):
+    """Process multiple images through AlexNet conv1 in a single GPU call.
+    
+    Args:
+        input_imgs: list of RGB numpy arrays
+        kernel: AlexNet conv1 kernel
+        bias: AlexNet conv1 bias
+    Returns:
+        list of output feature maps, each (out_channels, H, W)
+    """
+    prepared = [_prepare_input(img) for img in input_imgs]
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Stack all images into a single batch tensor: (N, C, H, W)
+    batch = np.stack(prepared, axis=0)
+    input_tensor = torch.from_numpy(batch).permute(0, 3, 1, 2).float().to(device)
+    kernel_tensor = torch.from_numpy(kernel).permute(3, 2, 0, 1).float().to(device)
+    bias_tensor = torch.from_numpy(bias).float().to(device)
+    
+    with torch.no_grad():
+        out = F.conv2d(input_tensor, kernel_tensor, bias=bias_tensor, stride=4)
+        out = F.relu(out)
+    
+    # Split back into individual results
+    return [out[i].cpu().numpy() for i in range(len(input_imgs))]
 
 
 def max_pooling (resp, patches ):
@@ -156,26 +178,25 @@ def CNN_symmetry(input_img, kernel, bias):
     sym_lr,sym_ud,sym_lrud = CNN_qips.CNN_symmetry(img_rgb, kernel, bias)
     '''
     
-    ### get max pooling map for orig. image
-    resp_orig = conv2d(input_img, kernel, bias)
-    max_pooling_map_orig, _ = max_pooling (resp_orig, patches=17)
-    
-    ### get max pooling map for left-right fliped image
+    # Prepare all 4 image variants
     img_lr = np.fliplr(input_img)
-    resp_lr = conv2d(img_lr, kernel, bias)
-    max_pooling_map_lr, _ = max_pooling (resp_lr, patches=17)
+    img_ud = np.flipud(input_img)
+    img_lrud = np.fliplr(img_ud)
+    
+    # Batch all 4 through the GPU in a single conv2d call
+    resp_orig, resp_lr, resp_ud, resp_lrud = conv2d_batch(
+        [input_img, img_lr, img_ud, img_lrud], kernel, bias
+    )
+    
+    max_pooling_map_orig, _ = max_pooling(resp_orig, patches=17)
+    
+    max_pooling_map_lr, _ = max_pooling(resp_lr, patches=17)
     sym_lr = get_differences(max_pooling_map_orig, max_pooling_map_lr)
     
-    ### get max pooling map for up-down fliped image
-    img_ud = np.flipud(input_img)
-    resp_ud = conv2d(img_ud, kernel, bias)
-    max_pooling_map_ud, _ = max_pooling (resp_ud, patches=17)
+    max_pooling_map_ud, _ = max_pooling(resp_ud, patches=17)
     sym_ud = get_differences(max_pooling_map_orig, max_pooling_map_ud)
 
-    ### get max pooling map for up-down and left-right fliped image
-    img_lrud = np.fliplr(np.flipud(input_img))
-    resp_lrud = conv2d(img_lrud, kernel, bias)
-    max_pooling_map_lrud, _ = max_pooling (resp_lrud, patches=17)
+    max_pooling_map_lrud, _ = max_pooling(resp_lrud, patches=17)
     sym_lrud = get_differences(max_pooling_map_orig, max_pooling_map_lrud)
     
     return sym_lr, sym_ud, sym_lrud

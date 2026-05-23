@@ -327,7 +327,12 @@ def main():
                         flush_batch()
 
         except KeyboardInterrupt:
-            logger.info("Interrupted! Saving progress...")
+            logger.info("Interrupted! Cancelling remaining tasks and saving progress...")
+            # Cancel all pending futures that haven't started yet
+            for future in futures:
+                future.cancel()
+            # Force shutdown workers immediately
+            executor.shutdown(wait=False, cancel_futures=True)
         finally:
             # Always flush remaining results, even on Ctrl+C
             flush_batch()
