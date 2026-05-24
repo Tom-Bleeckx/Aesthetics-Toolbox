@@ -4,6 +4,8 @@ import PIL
 import warnings
 import torch
 
+_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 
 def create_gabor(size, theta=0, octave=3):
@@ -65,42 +67,50 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
     resp_val[resp_val<cutoff] = 0
     ey, ex = resp_val.nonzero()
 
+    n = ex.size
     orientations = resp_bin[ey, ex]
     vals = resp_val[ey, ex]
 
+    # Convert all point data to tensors once (these are small: ~10k elements each)
+    ey_t = torch.tensor(ey, dtype=torch.float32, device=_device)
+    ex_t = torch.tensor(ex, dtype=torch.float32, device=_device)
+    ori_t = torch.tensor(orientations, dtype=torch.long, device=_device)
+    val_t = torch.tensor(vals, dtype=torch.float32, device=_device)
 
-    ey_t = torch.tensor(ey, dtype=torch.float32)
-    ex_t = torch.tensor(ex, dtype=torch.float32)
-    ori_t = torch.tensor(orientations, dtype=torch.long)
-    val_t = torch.tensor(vals, dtype=torch.float32)
+    hist_size = MAX_DIAGONAL * CIRC_BINS * GABOR_BINS
+    counts_flat = torch.zeros(hist_size, dtype=torch.float32, device=_device)
 
-    # Pairwise differences (n x n)
-    dy = ey_t[:, None] - ey_t[None, :]
-    dx = ex_t[:, None] - ex_t[None, :]
+    # Process in chunks to limit memory (~40MB per chunk instead of ~5GB all at once)
+    CHUNK = 500
+    for start in range(0, n, CHUNK):
+        end = min(start + CHUNK, n)
 
-    # Pairwise distances
-    distance_rel = torch.round(torch.sqrt(dy**2 + dx**2)).long()
-    distance_rel.clamp_(max=MAX_DIAGONAL - 1)
+        # Pairwise differences: (chunk_size, n) matrices
+        dy = ey_t[start:end, None] - ey_t[None, :]
+        dx = ex_t[start:end, None] - ex_t[None, :]
 
-    # Pairwise relative orientations
-    orientations_rel = (ori_t[:, None] - ori_t[None, :] + GABOR_BINS) % GABOR_BINS
+        # Pairwise distances
+        distance_rel = torch.round(torch.sqrt(dy**2 + dx**2)).long()
+        distance_rel.clamp_(max=MAX_DIAGONAL - 1)
 
-    # Pairwise directions
-    direction = torch.round(
-        torch.arctan2(dy, dx) / (2.0 * np.pi) * CIRC_BINS
-        + (ori_t[None, :].float() / float(GABOR_BINS) * CIRC_BINS)
-    ).long()
-    direction = (direction + CIRC_BINS) % CIRC_BINS
+        # Pairwise relative orientations
+        orientations_rel = (ori_t[start:end, None] - ori_t[None, :] + GABOR_BINS) % GABOR_BINS
 
-    # Pairwise weights
-    weights = val_t[:, None] * val_t[None, :]
+        # Pairwise directions
+        direction = torch.round(
+            torch.arctan2(dy, dx) / (2.0 * np.pi) * CIRC_BINS
+            + (ori_t[None, :].float() / float(GABOR_BINS) * CIRC_BINS)
+        ).long()
+        direction = (direction + CIRC_BINS) % CIRC_BINS
 
-    # Flatten 3D index to 1D and scatter_add into histogram
-    flat_idx = distance_rel * (CIRC_BINS * GABOR_BINS) + direction * GABOR_BINS + orientations_rel
-    counts_flat = torch.zeros(MAX_DIAGONAL * CIRC_BINS * GABOR_BINS, dtype=torch.float32)
-    counts_flat.scatter_add_(0, flat_idx.ravel(), weights.ravel())
+        # Pairwise weights
+        weights = val_t[start:end, None] * val_t[None, :]
 
-    counts = counts_flat.numpy().reshape(MAX_DIAGONAL, CIRC_BINS, GABOR_BINS)
+        # Flatten 3D index to 1D and scatter_add into histogram
+        flat_idx = distance_rel * (CIRC_BINS * GABOR_BINS) + direction * GABOR_BINS + orientations_rel
+        counts_flat.scatter_add_(0, flat_idx.ravel(), weights.ravel())
+
+    counts = counts_flat.cpu().numpy().reshape(MAX_DIAGONAL, CIRC_BINS, GABOR_BINS)
 
     return counts, resp_val
 
