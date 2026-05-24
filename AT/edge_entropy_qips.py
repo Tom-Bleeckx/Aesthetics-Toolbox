@@ -72,13 +72,13 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
     vals = resp_val[ey, ex]
 
     # Convert all point data to tensors once (these are small: ~10k elements each)
-    ey_t = torch.tensor(ey, dtype=torch.float32, device=_device)
-    ex_t = torch.tensor(ex, dtype=torch.float32, device=_device)
+    ey_t = torch.tensor(ey, dtype=torch.float64, device=_device)
+    ex_t = torch.tensor(ex, dtype=torch.float64, device=_device)
     ori_t = torch.tensor(orientations, dtype=torch.long, device=_device)
-    val_t = torch.tensor(vals, dtype=torch.float32, device=_device)
+    val_t = torch.tensor(vals, dtype=torch.float64, device=_device)
 
     hist_size = MAX_DIAGONAL * CIRC_BINS * GABOR_BINS
-    counts_flat = torch.zeros(hist_size, dtype=torch.float32, device=_device)
+    counts_flat = torch.zeros(hist_size, dtype=torch.float64, device=_device)
 
     # Process in chunks to limit memory (~40MB per chunk instead of ~5GB all at once)
     CHUNK = 500
@@ -99,7 +99,7 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
         # Pairwise directions
         direction = torch.round(
             torch.arctan2(dy, dx) / (2.0 * np.pi) * CIRC_BINS
-            + (ori_t[None, :].float() / float(GABOR_BINS) * CIRC_BINS)
+            + (ori_t[None, :].double() / float(GABOR_BINS) * CIRC_BINS)
         ).long()
         direction = (direction + CIRC_BINS) % CIRC_BINS
 

@@ -332,13 +332,11 @@ def main():
             if _stop_requested:
                 break
             try:
-                row, duration = future.result(timeout=0.1)
+                row, duration = future.result()
                 if row is not None:
-                    tqdm.write(f"  -> Processed: {row['img_file']} in {duration:.2f}s")
+                    tqdm.write(f"  -> {row['img_file']}  {duration:.2f}s")
                     results_batch.append(row)
                 pbar.update(1)
-            except concurrent.futures.TimeoutError:
-                continue
             except Exception as e:
                 pbar.update(1)
                 continue
