@@ -2,6 +2,9 @@ import numpy as np
 from scipy.ndimage import convolve
 import PIL
 import warnings
+import torch
+
+_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 
@@ -64,27 +67,43 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
     resp_val[resp_val<cutoff] = 0
     ey, ex = resp_val.nonzero()
 
-    # lookup tables to speed up calculations
-    edge_dims = resp_val.shape
-    xx, yy = np.meshgrid(np.linspace(-edge_dims[1],edge_dims[1],2*edge_dims[1]+1), np.linspace(-edge_dims[0],edge_dims[0],2*edge_dims[0]+1))
-    dist = np.sqrt(xx**2+yy**2)
+    orientations = resp_bin[ey, ex]
+    vals = resp_val[ey, ex]
 
-    orientations = resp_bin[ey,ex]
-    counts = np.zeros([500, CIRC_BINS, GABOR_BINS])
+    device = _device
 
-    #print ("Counting", 'image name', resp_val.shape, "comparing", ex.size)
-    for cp in range(ex.size):
+    ey_t = torch.tensor(ey, dtype=torch.float32, device=device)
+    ex_t = torch.tensor(ex, dtype=torch.float32, device=device)
+    ori_t = torch.tensor(orientations, dtype=torch.long, device=device)
+    val_t = torch.tensor(vals, dtype=torch.float32, device=device)
 
-        orientations_rel = orientations - orientations[cp]
-        orientations_rel = np.mod(orientations_rel + GABOR_BINS, GABOR_BINS)
+    # Pairwise differences (n x n)
+    dy = ey_t[:, None] - ey_t[None, :]
+    dx = ex_t[:, None] - ex_t[None, :]
 
-        distance_rel = np.round(dist[(ey-ey[cp])+edge_dims[0], (ex-ex[cp])+edge_dims[1]]).astype("uint32")
-        distance_rel[distance_rel>=MAX_DIAGONAL] = MAX_DIAGONAL-1
+    # Pairwise distances
+    distance_rel = torch.round(torch.sqrt(dy**2 + dx**2)).long()
+    distance_rel.clamp_(max=MAX_DIAGONAL - 1)
 
-        direction = np.round(np.arctan2(ey-ey[cp], ex-ex[cp]) / (2.0*np.pi)*CIRC_BINS + (orientations[cp]/float(GABOR_BINS)*CIRC_BINS)).astype("uint32")
-        direction = np.mod(direction+CIRC_BINS, CIRC_BINS)
-        
-        np.add.at(counts, tuple([distance_rel, direction, orientations_rel]), resp_val[ey,ex] * resp_val[ey[cp],ex[cp]])
+    # Pairwise relative orientations
+    orientations_rel = (ori_t[:, None] - ori_t[None, :] + GABOR_BINS) % GABOR_BINS
+
+    # Pairwise directions
+    direction = torch.round(
+        torch.arctan2(dy, dx) / (2.0 * np.pi) * CIRC_BINS
+        + (ori_t[None, :].float() / float(GABOR_BINS) * CIRC_BINS)
+    ).long()
+    direction = (direction + CIRC_BINS) % CIRC_BINS
+
+    # Pairwise weights
+    weights = val_t[:, None] * val_t[None, :]
+
+    # Flatten 3D index to 1D and scatter_add into histogram
+    flat_idx = distance_rel * (CIRC_BINS * GABOR_BINS) + direction * GABOR_BINS + orientations_rel
+    counts_flat = torch.zeros(MAX_DIAGONAL * CIRC_BINS * GABOR_BINS, dtype=torch.float32, device=device)
+    counts_flat.scatter_add_(0, flat_idx.ravel(), weights.ravel())
+
+    counts = counts_flat.cpu().numpy().reshape(MAX_DIAGONAL, CIRC_BINS, GABOR_BINS)
 
     return counts, resp_val
 
