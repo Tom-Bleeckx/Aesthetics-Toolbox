@@ -4,8 +4,6 @@ import PIL
 import warnings
 import torch
 
-_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 
 
 def create_gabor(size, theta=0, octave=3):
@@ -70,12 +68,11 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
     orientations = resp_bin[ey, ex]
     vals = resp_val[ey, ex]
 
-    device = _device
 
-    ey_t = torch.tensor(ey, dtype=torch.float32, device=device)
-    ex_t = torch.tensor(ex, dtype=torch.float32, device=device)
-    ori_t = torch.tensor(orientations, dtype=torch.long, device=device)
-    val_t = torch.tensor(vals, dtype=torch.float32, device=device)
+    ey_t = torch.tensor(ey, dtype=torch.float32)
+    ex_t = torch.tensor(ex, dtype=torch.float32)
+    ori_t = torch.tensor(orientations, dtype=torch.long)
+    val_t = torch.tensor(vals, dtype=torch.float32)
 
     # Pairwise differences (n x n)
     dy = ey_t[:, None] - ey_t[None, :]
@@ -100,10 +97,10 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
 
     # Flatten 3D index to 1D and scatter_add into histogram
     flat_idx = distance_rel * (CIRC_BINS * GABOR_BINS) + direction * GABOR_BINS + orientations_rel
-    counts_flat = torch.zeros(MAX_DIAGONAL * CIRC_BINS * GABOR_BINS, dtype=torch.float32, device=device)
+    counts_flat = torch.zeros(MAX_DIAGONAL * CIRC_BINS * GABOR_BINS, dtype=torch.float32)
     counts_flat.scatter_add_(0, flat_idx.ravel(), weights.ravel())
 
-    counts = counts_flat.cpu().numpy().reshape(MAX_DIAGONAL, CIRC_BINS, GABOR_BINS)
+    counts = counts_flat.numpy().reshape(MAX_DIAGONAL, CIRC_BINS, GABOR_BINS)
 
     return counts, resp_val
 
