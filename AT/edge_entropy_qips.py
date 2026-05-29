@@ -4,7 +4,13 @@ import PIL
 import warnings
 import torch
 
-_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+_device = None
+
+def _get_device():
+    global _device
+    if _device is None:
+        _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    return _device
 
 
 
@@ -72,13 +78,13 @@ def do_counting(resp_val, resp_bin, CIRC_BINS=48, GABOR_BINS=24, MAX_DIAGONAL = 
     vals = resp_val[ey, ex]
 
     # Convert all point data to tensors once (these are small: ~10k elements each)
-    ey_t = torch.tensor(ey, dtype=torch.float64, device=_device)
-    ex_t = torch.tensor(ex, dtype=torch.float64, device=_device)
-    ori_t = torch.tensor(orientations, dtype=torch.long, device=_device)
-    val_t = torch.tensor(vals, dtype=torch.float64, device=_device)
+    ey_t = torch.tensor(ey, dtype=torch.float64, device=_get_device())
+    ex_t = torch.tensor(ex, dtype=torch.float64, device=_get_device())
+    ori_t = torch.tensor(orientations, dtype=torch.long, device=_get_device())
+    val_t = torch.tensor(vals, dtype=torch.float64, device=_get_device())
 
     hist_size = MAX_DIAGONAL * CIRC_BINS * GABOR_BINS
-    counts_flat = torch.zeros(hist_size, dtype=torch.float64, device=_device)
+    counts_flat = torch.zeros(hist_size, dtype=torch.float64, device=_get_device())
 
     # Process in chunks to limit memory (~40MB per chunk instead of ~5GB all at once)
     CHUNK = 500

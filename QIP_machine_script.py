@@ -11,7 +11,6 @@ from pathlib import Path
 import concurrent.futures
 import warnings
 import signal
-import multiprocessing as mp
 
 # Suppress expected mathematical warnings (like divide by zero or invalid multiply) from NumPy/SciPy features
 warnings.filterwarnings('ignore', category=RuntimeWarning)
@@ -316,11 +315,9 @@ def main():
         
         optimal_workers = min(4, os.cpu_count() or 1)
         
-        ctx = mp.get_context('spawn')
         executor = concurrent.futures.ProcessPoolExecutor(
             max_workers=optimal_workers, 
-            initializer=init_worker,
-            mp_context=ctx
+            initializer=init_worker
         )
         futures = {
             executor.submit(

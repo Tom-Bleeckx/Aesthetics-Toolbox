@@ -3,7 +3,13 @@ from skimage.transform import resize
 import torch
 import torch.nn.functional as F
 
-_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+_device = None
+
+def _get_device():
+    global _device
+    if _device is None:
+        _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    return _device
 
 ################################ helper functions #####################################
 
@@ -28,9 +34,9 @@ def conv2d(input_img, kernel, bias):
     """Process a single image through AlexNet conv1."""
     input_img = _prepare_input(input_img)
     
-    input_tensor = torch.from_numpy(input_img).permute(2, 0, 1).unsqueeze(0).float().to(_device)
-    kernel_tensor = torch.from_numpy(kernel).permute(3, 2, 0, 1).float().to(_device)
-    bias_tensor = torch.from_numpy(bias).float().to(_device)
+    input_tensor = torch.from_numpy(input_img).permute(2, 0, 1).unsqueeze(0).float().to(_get_device())
+    kernel_tensor = torch.from_numpy(kernel).permute(3, 2, 0, 1).float().to(_get_device())
+    bias_tensor = torch.from_numpy(bias).float().to(_get_device())
     
     with torch.no_grad():
         out = F.conv2d(input_tensor, kernel_tensor, bias=bias_tensor, stride=4)
@@ -53,9 +59,9 @@ def conv2d_batch(input_imgs, kernel, bias):
     prepared = [_prepare_input(img) for img in input_imgs]
     
     batch = np.stack(prepared, axis=0)
-    input_tensor = torch.from_numpy(batch).permute(0, 3, 1, 2).float().to(_device)
-    kernel_tensor = torch.from_numpy(kernel).permute(3, 2, 0, 1).float().to(_device)
-    bias_tensor = torch.from_numpy(bias).float().to(_device)
+    input_tensor = torch.from_numpy(batch).permute(0, 3, 1, 2).float().to(_get_device())
+    kernel_tensor = torch.from_numpy(kernel).permute(3, 2, 0, 1).float().to(_get_device())
+    bias_tensor = torch.from_numpy(bias).float().to(_get_device())
     
     with torch.no_grad():
         out = F.conv2d(input_tensor, kernel_tensor, bias=bias_tensor, stride=4)
