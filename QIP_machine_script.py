@@ -1,8 +1,8 @@
 #Import the required Libraries
+import os
 import numpy as np
 from PIL import Image
 from skimage import color
-import os
 import time
 import pandas as pd
 from tqdm import tqdm

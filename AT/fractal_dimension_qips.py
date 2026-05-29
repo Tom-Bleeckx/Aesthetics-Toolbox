@@ -50,8 +50,14 @@ def fractal_dimension_2d(img_gray):
 
         b = (c > 0) & (c < 4)
 
-    params = np.polyfit(np.log2(x[1:]), np.log2(y[1:]), 1)
-    D = params[0]
+    x_log = np.log2(x[1:])
+    y_log = np.log2(y[1:])
+    mask = np.isfinite(x_log) & np.isfinite(y_log)
+    if np.sum(mask) < 2:
+        D = 0.0
+    else:
+        params = np.polyfit(x_log[mask], y_log[mask], 1)
+        D = params[0]
     return D
 
 
@@ -138,7 +144,13 @@ def fractal_dimension_3d(img_gray):
         boxCounts[b] = boxCount
         boxSizes[b] = 1.0 / bs
 
-    dfit = np.polyfit(np.log(boxSizes), np.log(boxCounts), 1)
-    D = dfit[0]
+    x_log = np.log(boxSizes)
+    y_log = np.log(boxCounts)
+    mask = np.isfinite(x_log) & np.isfinite(y_log)
+    if np.sum(mask) < 2:
+        D = 0.0
+    else:
+        dfit = np.polyfit(x_log[mask], y_log[mask], 1)
+        D = dfit[0]
     return D  
     

@@ -155,12 +155,26 @@ def fourier_redies(img_gray, bin_size=2, cycles_min=10, cycles_max=256):
 
     bin_mean_bar, bin_x_val = calc_bin(A, bin_size, x_min, x_max)
     
-    param = np.linalg.lstsq(np.vstack([np.ones(len(bin_mean_bar[1])), np.log10(bin_mean_bar[0])]).T, np.log10(bin_mean_bar[1]), rcond=None)[0]
+    X = np.log10(bin_mean_bar[0])
+    Y = np.log10(bin_mean_bar[1])
+    mask = np.isfinite(X) & np.isfinite(Y)
     
-    log_m_bin = param[1]
-    log_n_bin = param[0]
+    if np.sum(mask) < 2:
+        log_m_bin = 0.0
+        log_n_bin = 0.0
+    else:
+        X_clean = X[mask]
+        Y_clean = Y[mask]
+        param = np.linalg.lstsq(np.vstack([np.ones(len(X_clean)), X_clean]).T, Y_clean, rcond=None)[0]
+        log_m_bin = param[1]
+        log_n_bin = param[0]
 
-    SIGMA = var_eigen(log_m_bin, log_n_bin, log_rang, log_using_range)
+    mask_var = np.isfinite(log_rang) & np.isfinite(log_using_range)
+    if not np.any(mask_var):
+        SIGMA = 0.0
+    else:
+        SIGMA = var_eigen(log_m_bin, log_n_bin, log_rang[mask_var], log_using_range[mask_var])
+        
     SLOPE = log_m_bin
     
     return SIGMA, SLOPE
@@ -209,16 +223,24 @@ def CooksDistance_SM(X, y):
     '''
     computes the Cook's distance using the statsmodel package'
     '''
+    mask = np.isfinite(X) & np.isfinite(y)
+    if not np.any(mask) or len(X[mask]) < 2:
+        return np.zeros(len(X))
+        
+    X_clean = X[mask]
+    y_clean = y[mask]
     
     # add constant value
-    X = sm.add_constant(X.reshape(-1, 1))
+    X_const = sm.add_constant(X_clean.reshape(-1, 1))
     # fit the model
-    model = sm.OLS(y,X).fit()
+    model = sm.OLS(y_clean, X_const).fit()
     # Get influence measures
     influence = model.get_influence()
     # Calculate Cook's distance
-    cooks_d = influence.cooks_distance[0] 
-    # Output the results
+    cooks_d_clean = influence.cooks_distance[0] 
+    
+    cooks_d = np.zeros(len(X))
+    cooks_d[mask] = cooks_d_clean
     return cooks_d
 
 
@@ -272,9 +294,15 @@ def fourier_slope_branka_Spehar_Isherwood(img_gray):
     # Log-log fit
     A_loglog = np.log(x_vec)
     B_loglog = np.log(y_vec)
-    b_loglog, _ = np.polyfit(A_loglog, B_loglog, 1)
-
-    spatialSlope_logFit = b_loglog
+    
+    mask = np.isfinite(A_loglog) & np.isfinite(B_loglog)
+    if np.sum(mask) < 2:
+        spatialSlope_logFit = 0.0
+    else:
+        A_clean = A_loglog[mask]
+        B_clean = B_loglog[mask]
+        b_loglog, _ = np.polyfit(A_clean, B_clean, 1)
+        spatialSlope_logFit = b_loglog
 
     return spatialSlope_logFit
 
@@ -357,7 +385,17 @@ def fourier_slope_mather(img_rgb):
     
     f11 = f1[minf-1:maxf]
     Pf1 = Pf[minf-1:maxf]
-    c = np.polyfit(np.log(f11), np.log(Pf1), 1)
-    slope = c[0] / 2
+    
+    A_log = np.log(f11)
+    B_log = np.log(Pf1)
+    
+    mask = np.isfinite(A_log) & np.isfinite(B_log)
+    if np.sum(mask) < 2:
+        slope = 0.0
+    else:
+        A_clean = A_log[mask]
+        B_clean = B_log[mask]
+        c = np.polyfit(A_clean, B_clean, 1)
+        slope = c[0] / 2
 
     return slope
