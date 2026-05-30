@@ -107,10 +107,16 @@ def custom_round(num):
     return np.round(num, 3)
 
 class LazyImageHandler:
+    # Max working resolution: ~4 megapixels (e.g. 2048x2048). Images above this
+    # are downscaled proportionally to avoid multi-GB float64 arrays during
+    # Lab/HSV color conversions (a 4545x6642 image = ~690 MB per conversion).
+    MAX_PIXELS = 2048 * 2048
+
     def __init__(self, file_path, kernel=None, bias=None):
         self.file_path = file_path
         self.kernel = kernel
         self.bias = bias
+        self._img_rgb_original = None
         self._img_rgb = None
         self._img_lab = None
         self._img_hsv = None
@@ -122,9 +128,24 @@ class LazyImageHandler:
         self._fourier_results = None
 
     @property
+    def rgb_original(self):
+        """Lightweight shape-only proxy for image_size and aspect_ratio (never loads pixel data)."""
+        if self._img_rgb_original is None:
+            with Image.open(self.file_path) as img:
+                w, h = img.size
+            # Proxy object with .shape — image_size/aspect_ratio only use shape[0] and shape[1]
+            self._img_rgb_original = type('ImageShape', (), {'shape': (h, w, 3)})()
+        return self._img_rgb_original
+
+    @property
     def rgb(self):
         if self._img_rgb is None:
-            self._img_rgb = np.asarray(Image.open(self.file_path).convert('RGB'))
+            img = Image.open(self.file_path).convert('RGB')
+            w, h = img.size
+            if w * h > self.MAX_PIXELS:
+                scale = (self.MAX_PIXELS / (w * h)) ** 0.5
+                img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            self._img_rgb = np.asarray(img)
         return self._img_rgb
 
     @property
@@ -142,7 +163,12 @@ class LazyImageHandler:
     @property
     def gray(self):
         if self._img_gray is None:
-            self._img_gray = np.asarray(Image.open(self.file_path).convert('L'))
+            img = Image.open(self.file_path).convert('L')
+            w, h = img.size
+            if w * h > self.MAX_PIXELS:
+                scale = (self.MAX_PIXELS / (w * h)) ** 0.5
+                img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            self._img_gray = np.asarray(img)
         return self._img_gray
 
     @property
@@ -188,8 +214,8 @@ def get_qip_registry():
         '2nd-order': lambda h: h.edge_entropy_results[1],
         'Edge density': lambda h: h.edge_entropy_results[2],
         'Luminance entropy': lambda h: color_and_simple_qips.shannonentropy_channels(h.lab[:,:,0]),
-        'Image size (pixels)': lambda h: color_and_simple_qips.image_size(h.rgb),
-        'Aspect ratio': lambda h: color_and_simple_qips.aspect_ratio(h.rgb),
+        'Image size (pixels)': lambda h: color_and_simple_qips.image_size(h.rgb_original),
+        'Aspect ratio': lambda h: color_and_simple_qips.aspect_ratio(h.rgb_original),
         'left-right': lambda h: h.cnn_sym_results[0],
         'up-down': lambda h: h.cnn_sym_results[1],
         'left-right & up-down': lambda h: h.cnn_sym_results[2],
