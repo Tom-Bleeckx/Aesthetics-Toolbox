@@ -221,7 +221,9 @@ def init_worker():
     global _global_kernel, _global_bias, _global_registry
     # Suppress RuntimeWarnings in worker processes (they don't inherit the main process filter)
     warnings.filterwarnings('ignore', category=RuntimeWarning)
-    logger.debug(f"Worker {os.getpid()} initializing: Loading AlexNet kernel and QIP registry...")
+    # Eagerly initialize GPU device in this worker so any CUDA errors surface immediately
+    device = CNN_qips._get_device()
+    logger.info(f"Worker {os.getpid()} using device: {device}")
     [_global_kernel, _global_bias] = np.load(open("AT/bvlc_alexnet_conv1.npy", "rb"), encoding="latin1", allow_pickle=True)
     _global_registry = get_qip_registry()
     logger.debug(f"Worker {os.getpid()} initialization complete.")
